@@ -1,0 +1,598 @@
+---
+title: "1.1 knoll stat and plots"
+output: html_document
+date: "2022-09-21"
+---
+
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(Hmisc)
+library(vegan)
+library(mobr)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(plotrix)
+```
+
+```{r}
+load("Data/fish_full_data.Rdata")
+load("Data/knoll_mdata.Rdata")
+load("Data/coral_cover.Rdata")
+load("Data/coral_comm.Rdata")
+```
+
+saving paths
+
+```{r}
+coral_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Coral plots"
+
+
+```
+
+
+
+# Corals
+
+## plot of mean coral cover + Anova + Tuckey
+
+plot 9 in the report - mean coral cover(soft +stone) for each site
+
+
+```{r}
+
+# keep relevant column
+
+yearly_cover <- coral_cover %>%
+  select(
+    Site,
+    Year,
+    storm,
+    Surface_Area,
+    Knoll,
+    Stony.Coral,
+    Hydrozoa,
+    Soft.Coral,
+    Algae,
+    Zoantharia) %>%
+  mutate(all_stone = Stony.Coral + Hydrozoa) %>%
+  mutate(all_soft = Soft.Coral + Zoantharia)
+
+# calculates mean and se
+
+cover_bar <-
+  yearly_cover %>% group_by(Site, Year) %>% 
+  summarise(
+    "mean_stone" = mean(all_stone, na.rm = T),
+    "mean_soft" = mean(all_soft, na.rm = T),
+    "n" = n(),
+    "SE_stone" = std.error(all_stone),
+    "SE_soft" = std.error(all_soft))
+
+
+cover_bar<-gather(cover_bar,"coral_type","cover",3:4)
+
+cover_bar$Year<-as.factor(cover_bar$Year)
+
+# set the position for se
+
+cover_bar <- cover_bar %>% group_by(Site, Year) %>%
+  mutate(
+    "se_positon" = case_when(
+      coral_type == "mean_stone" ~ cover + SE_stone,
+      coral_type == "mean_soft" ~ cumsum(cover) +
+        SE_soft
+    ))
+
+cover_bar <- cover_bar %>% group_by(Site, Year) %>%
+  mutate(
+    "se_positon_min" = case_when(
+      coral_type == "mean_stone" ~ cover ,
+      coral_type == "mean_soft" ~ cumsum(cover)
+    )
+  )
+
+
+cover_bar<-cover_bar %>% mutate("site_code"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR")
+  
+)
+
+# plot
+
+ggplot(data = cover_bar,aes(x=Year,y = cover, fill = coral_type))+
+    geom_bar(position="stack", stat="identity",color ="black")+
+  geom_errorbar(aes(ymax = se_positon,ymin = se_positon_min),width=.1)+
+    facet_wrap(site_code~.)+
+    theme_bw()+ylab("Mean cover(%)")+ 
+  geom_text(data = cover_bar,
+        aes(label = n, y = 5),size=6)+
+  scale_fill_manual(values = c("#fed0bb","#d77a7d"),name = "Coral type",labels= c("Soft coral","Stony coral"))+
+    theme(title = element_text(size = 20),
+    axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size =16),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+    strip.text = element_text(size=22),
+    strip.background =element_rect(fill="#faf5ef"))
+  
+#ggsave("coral_cover_stacked_bar.pdf" , width = 10, height = 8, dpi = 300,path = coral_plots)
+
+
+```
+
+
+## model of stony coral cover (%)
+
+before and after the storm,
+curate data for coral cover model, omit 2017
+
+those are the chosen models but all models can be found in script 12.2 
+
+
+```{r}
+
+coral_cover<-coral_cover %>% drop_na(Site)
+
+coral_cover$storm<-ordered(coral_cover$storm,levels = c("Before","After"))
+
+cover_no17<-coral_cover %>% filter(Year != "2017") %>% 
+  mutate("knoll_number" = paste(Knoll,Site,sep="_")) %>% na.omit(cover_no17)
+
+cover_no17$Site<-as.factor(cover_no17$Site)
+
+cover_no17$Stony.Coral_p<- cover_no17$Stony.Coral/100
+```
+
+### simple model
+
+a simple model that take into account storm,site and knoll id
+
+```{r}
+simple_chosen_m <-glmmTMB::glmmTMB(formula = Stony.Coral ~ storm + (1|Site) + (1|knoll_number) , data = cover_no17,
+                                  REML = F)
+
+summary(simple_chosen_m)
+```
+
+### simple model with site
+
+```{r}
+by_site_cover_model<-glmmTMB::glmmTMB(formula = Stony.Coral ~  storm*Site +Max_depth  + (1|knoll_number) ,data = cover_no17,REML = T)
+
+
+summary(by_site_cover_model)
+```
+
+### models for coral richness vs Surface area 
+
+the chosen model, full model selection process is in script 13.1
+```{r}
+
+# data prep
+only_coral<- coral_comm %>%
+  filter(Category %in% c("Soft Coral","Stony Coral","Corallimorpharia","Zoantharia","Hydrozoa")) %>% filter(year != 2017)
+
+only_stone<-only_coral %>% mutate(knoll_number = paste(site,knoll,sep= "_")) %>% filter(knoll_number!= "NR_17",knoll_number!= "NR_11",knoll_number!= "Katza_19") %>% filter(year != 2017) %>%  filter(Category %in% c("Stony Coral","Hydrozoa"))
+
+only_stone<- only_stone %>% group_by(site,knoll,year,storm,Max_depth,Min_depth,Surface_Area) %>% summarise(Species_number = n_distinct(species)) %>%  ungroup() 
+
+# model
+
+
+model_stone<-lm(formula = log(Species_number) ~ log(Surface_Area)*site +year + Max_depth ,data = only_stone)
+
+summary(model_stone)
+
+
+# plot
+
+surface_area = rep(seq(from = 1,to = 60,by = 1),16) # Length = 45
+site = rep(unique(only_stone$site),each = 240) # Length = 4
+year = rep(rep(unique(only_stone$year),each = 60),4) # Length = 4
+
+predict<-data.frame(Site = site,
+                       Year = year,
+                       Surface_Area= surface_area,
+                       Max_depth = rep(4.6))
+
+
+predict$Surface_Area_log<-log(predict$Surface_Area)
+
+predict_species<-predict(model_stone,predict,type="response")
+
+predict<-cbind(predict,predict_species)
+
+predict$species_number<-exp(predict$predict_species)
+
+predict$Year<- as.factor(predict$Year)
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+
+predict <- predict %>% mutate("site_code"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+only_stone <- only_stone %>% mutate("site_code"= case_when(
+      site == "Caves" ~ "CA",
+      site == "Princess" ~ "PR",
+      site == "Katza" ~ "KA",
+      site =="NR" ~"NR"))
+
+# log scale
+
+ggplot(data = predict,aes(x= Surface_Area,y = species_number,color= site_code))+scale_x_continuous(trans='log2')+scale_y_continuous(trans='log2')+
+  theme_classic()+
+  geom_smooth(size=1.2,se = T)+
+  geom_point(data = only_stone,aes(Surface_Area,Species_number,color = site_code),alpha = 0.3)+
+  ylab("Stone coral species")+
+  xlab(bquote('Knoll surface area '~(m^2)))+
+  theme(axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+  scale_color_manual(name = "Site",values = color)+ guides(color=guide_legend(override.aes=list(fill=NA)))
+
+#ggsave("stone_coral_sp_area.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+
+#ggsave("stone_coral_sp_area.png" , width = 14, height = 5, dpi = 300,path = coral_plots)
+
+
+```
+
+## Coral rarefactions
+
+#### stone coral by site
+
+richness sbr (by site)
+
+```{r}
+
+# data prep
+
+stone_coral<- coral_comm %>%
+  filter(Category %in% c("Stony Coral","Hydrozoa"))
+
+
+rare_coral<-stone_coral %>% group_by(site,knoll,year,storm,species) %>% summarise("abundance"=sum(points))
+
+data<-spread(rare_coral,species,abundance,fill = 0)
+
+
+data <- data %>% filter(year != "2017")
+
+data<-data %>% mutate("site"= case_when(
+      site == "Caves" ~ "CA",
+      site == "Princess" ~ "PR",
+      site == "Katza" ~ "KA",
+      site =="NR" ~"NR")
+  
+)
+# sbr rarefaction
+
+srb_list<-list()
+loop<-1
+
+for (i in unique(data$site)) {
+  
+  site<- data %>% filter(site == i)
+  
+  site_richness<-Rarefy::rare_alpha(site[5:ncol(site)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  site_richness$site<-rep(i)
+  site_richness$sample<-1:nrow(site_richness)
+  
+  
+  srb_list[[loop]]<-site_richness
+  loop<-loop+1
+  
+  
+}
+
+site_richness<-bind_rows(srb_list)
+
+# plot
+
+ggplot(site_richness,aes(x= sample,y=Rarefaction,color=site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.2, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Stony coral")+
+  ylab("Richness")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,name = "Site")+ guides(color=guide_legend(override.aes=list(fill=NA)))
+
+#ggsave("hard_coral_sbr.png" , width = 14, height = 5, dpi = 300,path = coral_plots)
+
+```
+
+shannon sbr (by site)
+
+```{r}
+srb_shn_list<-list()
+loop<-1
+
+for (i in unique(data$site)) {
+  
+  site<- data %>% filter(site == i)
+  
+  site_shanon<-Rarefy::rare_alpha(site[5:ncol(site)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  site_shanon$site<-rep(i)
+  site_shanon$sample<-1:nrow(site_shanon)
+  
+  
+  srb_shn_list[[loop]]<-site_shanon
+  loop<-loop+1
+  
+  
+}
+
+site_shanon<-bind_rows(srb_shn_list)
+
+
+ggplot(site_shanon,aes(x= sample,y=Rarefaction,color=site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.2, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Stony corals")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,name = "Site")+ guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+#ggsave("hard_coral_shanon_sbr.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+```
+
+#### soft coral by site
+
+richness sbr
+
+```{r}
+soft_coral<- coral_comm %>%
+  filter(Category %in% c("Soft Coral","Zoantharia"))
+
+
+rare_soft<-soft_coral %>% group_by(site,knoll,year,storm,species) %>% summarise("abundance"=sum(points))
+
+data_soft<-spread(rare_soft,species,abundance,fill = 0)
+
+
+data_soft <- data_soft %>% filter(year != "2017")
+
+data_soft<-data_soft %>% mutate("site"= case_when(
+      site == "Caves" ~ "CA",
+      site == "Princess" ~ "PR",
+      site == "Katza" ~ "KA",
+      site =="NR" ~"NR"))
+
+srb_soft_list<-list()
+loop<-1
+
+for (i in unique(data_soft$site)) {
+  
+  site<- data_soft %>% filter(site == i)
+  
+  site_richness<-Rarefy::rare_alpha(site[5:ncol(site)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  site_richness$site<-rep(i)
+  site_richness$sample<-1:nrow(site_richness)
+  
+  
+  srb_soft_list[[loop]]<-site_richness
+  loop<-loop+1
+  
+  
+}
+
+site_soft_richness <- bind_rows(srb_soft_list)
+
+
+ggplot(site_soft_richness,aes(x= sample,y=Rarefaction,color=site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.2, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Soft coral")+
+  ylab("Richness")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,name = "Site")+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+#ggsave("soft_coral_sbr.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+
+```
+
+shannon sbr
+
+```{r}
+srb_shn_list_soft<-list()
+loop<-1
+
+for (i in unique(data_soft$site)) {
+  
+  site<- data_soft %>% filter(site == i)
+  
+  site_shanon<-Rarefy::rare_alpha(site[5:ncol(site)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  site_shanon$site<-rep(i)
+  site_shanon$sample<-1:nrow(site_shanon)
+  
+  
+  srb_shn_list_soft[[loop]]<-site_shanon
+  loop<-loop+1
+  
+  
+}
+
+site_shanon_soft<-bind_rows(srb_shn_list_soft)
+
+
+ggplot(site_shanon_soft,aes(x= sample,y=Rarefaction,color=site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.2, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Soft corals")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,name = "Site")+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+#ggsave("soft_coral_shanon_sbr.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+
+```
+
+
+#### stone coral by year
+
+richness sbr
+
+```{r}
+
+l_type<-c("solid","solid","solid","twodash")
+
+srb_list_year<-list()
+loop<-1
+all_new<-c("#98c1d9","#6b8ead","#003049","#c1121f")
+
+
+for (i in unique(data$year)) {
+  
+  year<- data %>% filter(year == i)
+  
+  year_richness<-Rarefy::rare_alpha(year[5:ncol(year)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  year_richness$Year<-rep(i)
+  year_richness$sample<-1:nrow(year_richness)
+  
+  
+  srb_list_year[[loop]]<-year_richness
+  loop<-loop+1
+  
+  
+}
+
+year_richness<-bind_rows(srb_list_year)
+
+year_richness$Year<-as.factor(year_richness$Year)
+
+ggplot(year_richness,aes(x= sample,y=Rarefaction,color=Year))+
+  geom_line(aes(color = Year, linetype = Year), size = 1.2) +
+  scale_linetype_manual(name = "Year",values = l_type) +
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Stony coral")+
+  ylab("Species richness")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = all_new)+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+#ggsave("hard_coral_sbr_year.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+```
+
+stone coral shannon by year
+
+```{r}
+srb_shanon_list_year<-list()
+loop<-1
+all_new<-c("#98c1d9","#6b8ead","#003049","#c1121f")
+
+
+for (i in unique(data$year)) {
+  
+  year<- data %>% filter(year == i)
+  
+  year_richness<-Rarefy::rare_alpha(year[5:ncol(year)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  year_richness$Year<-rep(i)
+  year_richness$sample<-1:nrow(year_richness)
+  
+  
+  srb_shanon_list_year[[loop]]<-year_richness
+  loop<-loop+1
+  
+  
+}
+
+year_richness_sh<-bind_rows(srb_shanon_list_year)
+
+year_richness_sh$Year<-as.factor(year_richness_sh$Year)
+
+ggplot(year_richness_sh,aes(x= sample,y=Rarefaction,color=Year))+
+  geom_line(aes(color = Year, linetype = Year), size = 1.2) +
+  scale_linetype_manual(name = "Year",values = l_type)+
+  geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Stony coral")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = all_new)+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+#ggsave("hard_coral_sbr_year_shanon.pdf" , width = 14, height = 5, dpi = 300,path = coral_plots)
+```
+
+

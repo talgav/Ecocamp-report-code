@@ -1,0 +1,294 @@
+---
+title: "3.1 Katza only"
+output: html_document
+date: "2022-10-11"
+---
+
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(Hmisc)
+library(vegan)
+library(mobr)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(plotrix)
+library(lubridate)
+```
+
+
+```{r}
+load("Data/fish_full_data.Rdata")
+load("Data/knoll_mdata.Rdata")
+load("Data/coral_cover.Rdata")
+load("Data/coral_comm.Rdata")
+```
+
+
+```{r}
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+```
+
+
+# Fish 
+
+## Density 
+
+this is from script 15.1
+
+color scheme
+
+```{r}
+#site
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+#all years
+fish_all<-c("#669bbc","#336683","#003049","#ed3140","#c1121f","#710912")
+#all years for katza
+fish_k<-c("#669bbc","#336683","#1a4b66","#003049","#ed3140","#c1121f","#710912")
+
+```
+
+1) set one observer
+
+```{r}
+one_observer<-list()
+loop<-1
+set.seed(1)
+for (i in unique(fish_full_data$survey_id)) {
+  
+  data <- fish_full_data %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+```
+
+
+
+2) filter the north beach
+
+```{r}
+one_observer<-one_observer %>%
+  filter(Site !="North beach",
+         ! Knoll %in% c("Tamar","South bridge reserve","south bridge reserve",
+                        "North bridge reserve","north bridge reserve"))
+                                      
+```
+
+3) add the month to the sample
+
+```{r include=FALSE}
+
+one_observer$year_month<-ifelse(month(one_observer$Date)>6,
+                                paste(one_observer$Year,"b",sep= " "),
+                                paste(one_observer$Year,"a",sep= " "))
+
+one_observer<- one_observer %>% filter(Site == "Katza")
+
+one_observer$Site<-"KA"
+
+
+```
+
+### by site
+
+#### fish with schools
+
+bar plot 
+
+```{r}
+
+
+sfish_2015 <-c("Pseudanthias spp.",
+               "Chromis viridis",
+               "Neopomacentrus miryae")
+
+ind_per_m_year<- one_observer %>% group_by(Site,year_month,Knoll,Surface_Area) %>% summarise("inds"=sum(Abundance)) %>% mutate("inds_m"=inds/Surface_Area)
+
+
+ind_per_m_year<-ind_per_m_year %>% group_by(year_month) %>% summarise("mean_density"=mean(inds_m),"se"=std.error(inds_m),n=n())
+
+ind_per_m_year$year_month<-as.factor(ind_per_m_year$year_month)
+
+ggplot(data = ind_per_m_year,aes(x=year_month,y=mean_density,fill = year_month))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_density-se,ymax=mean_density+se),width =0.1)+
+  geom_text(aes(label = n,y=0.5), size = 7,color= "white")+  
+  xlab("Sample")+ ggtitle("Fish density")+
+  ylab(bquote('Mean fish density '(m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))+
+  scale_fill_manual(values= fish_k,
+                           name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016","Fall 2017",
+                                      "Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))+
+  scale_x_discrete(labels = c("Fall 2015", "Fall 2016","Fall 2017",
+                                      "Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))
+  
+#ggsave("katza_fish_density_m2_year.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+```
+
+# Richness
+
+```{r}
+
+rm(list=ls())
+
+load("Data/fish_full_data.Rdata")
+
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+#all years
+fish_all<-c("#669bbc","#336683","#003049","#ed3140","#c1121f","#710912")
+#all years for katza
+fish_k<-c("#669bbc","#336683","#1a4b66","#003049","#ed3140","#c1121f","#710912")
+
+```
+
+prepare the data
+
+```{r}
+
+# choose one observer
+
+one_observer<-list()
+loop<-1
+set.seed(1)
+for (i in unique(fish_full_data$survey_id)) {
+  
+  data <- fish_full_data %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+
+#filter low confidance
+
+
+one_observer$Confidence[is.na(one_observer$Confidence)]<-(0)
+one_observer<-one_observer %>% filter(Confidence <1)
+
+
+#filter irregular sites
+
+one_observer<-one_observer %>%
+  filter(Site !="North beach",
+         ! Knoll %in% c("Tamar","South bridge reserve","south bridge reserve",
+                        "North bridge reserve","north bridge reserve"))
+
+# add month
+
+one_observer$year_month<-ifelse(month(one_observer$Date)>6,
+                                paste(one_observer$Year,"b",sep= " "),
+                                paste(one_observer$Year,"a",sep= " "))
+
+
+# create wide data for 2015 resolution
+
+all_fish_2015 <- one_observer %>%
+  group_by(Site,Year,year_month,Knoll,Surface_Area,Max_depth,Date,survey_id,Species_2015) %>%
+  summarise("aboundance"=sum(Abundance))
+
+
+wide_2015<-spread(all_fish_2015,Species_2015,aboundance,fill = 0)
+
+
+wide_2015<-wide_2015 %>% filter(Site == "Katza")
+
+```
+
+#### By year
+
+##### Richness
+
+```{r}
+l_type<-c("solid","solid","solid","solid","twodash","solid","solid")
+
+srb_list_year<-list()
+loop<-1
+
+
+
+for (i in unique(wide_2015$year_month)) {
+  
+  year<- wide_2015 %>% filter(year_month == i)
+  
+  year_richness<-Rarefy::rare_alpha(year[9:ncol(year)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  year_richness$Year<-rep(i)
+  year_richness$sample<-1:nrow(year_richness)
+  
+  
+  srb_list_year[[loop]]<-year_richness
+  loop<-loop+1
+  
+  
+}
+
+year_richness<-bind_rows(srb_list_year)
+
+#labs(color  = "Year", linetype = "Year")
+
+
+ggplot(year_richness,aes(x= sample,y=Rarefaction,color=Year))+
+  geom_line(aes(color = Year), size = 1.2) +
+  geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish")+
+  ylab("Richness")+ 
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  guides(color=guide_legend(override.aes=list(fill=NA)))+
+  scale_color_discrete(name = "Sample",
+                     labels = c("Fall 2015", "Fall 2016","Fall 2017",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021"))
+  
+
+
+#ggsave("fish_sbr_year.pdf" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```

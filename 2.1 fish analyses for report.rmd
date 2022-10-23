@@ -1,0 +1,1331 @@
+---
+title: "2.1 fish analyses for report"
+output: html_document
+date: "2022-10-02"
+---
+
+
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(Hmisc)
+library(vegan)
+library(mobr)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(plotrix)
+library(lubridate)
+```
+
+```{r}
+
+load("Data/fish_full_data.Rdata")
+load("Data/knoll_mdata.Rdata")
+load("Data/coral_cover.Rdata")
+load("Data/coral_comm.Rdata")
+
+```
+
+```{r}
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+```
+
+
+# Fish 
+
+## Density 
+
+this is from script 15.1
+
+color scheme
+
+```{r}
+#site
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+#all years
+fish_all<-c("#669bbc","#336683","#003049","#ed3140","#c1121f","#710912")
+#all years for katza
+fish_k<-c("#669bbc","#336683","#1a4b66","#003049","#ed3140","#c1121f","#710912")
+
+```
+
+1) set one observer
+
+```{r}
+one_observer<-list()
+loop<-1
+set.seed(1)
+for (i in unique(fish_full_data$survey_id)) {
+  
+  data <- fish_full_data %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+```
+
+
+
+2) filter the north beach
+
+```{r}
+one_observer<-one_observer %>%
+  filter(Site !="North beach",
+         ! Knoll %in% c("Tamar","South bridge reserve","south bridge reserve",
+                        "North bridge reserve","north bridge reserve"))
+                                      
+```
+
+3) add the month to the sample
+
+```{r include=FALSE}
+
+one_observer$year_month<-ifelse(month(one_observer$Date)>6,
+                                paste(one_observer$Year,"b",sep= " "),
+                                paste(one_observer$Year,"a",sep= " "))
+
+
+```
+
+### by site
+
+#### fish without schools
+bar plot 
+```{r}
+
+
+sfish_2015 <-c("Pseudanthias spp.",
+               "Chromis viridis",
+               "Neopomacentrus miryae")
+
+ind_per_m<- one_observer %>%
+  filter(!Species_2015 %in% sfish_2015) %>% group_by(Site,year_month,Knoll,Surface_Area) %>% summarise("inds"=sum(Abundance)) %>% mutate("inds_m"=inds/Surface_Area)
+
+
+ind_per_m<-ind_per_m %>% 
+  group_by(Site) %>% 
+  summarise("mean_density"=mean(inds_m),
+            "se"=std.error(inds_m),
+             n=n())
+
+
+ind_per_m <- ind_per_m %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+ggplot(data = ind_per_m,aes(x=Site,y=mean_density,fill = Site))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_density-se,ymax=mean_density+se),width =0.1)+
+  scale_fill_manual(values = color)+
+  geom_text(aes(label = n,y=0.5), size = 7)+  
+  xlab("Site")+ ggtitle("Fish abundance (no schools)")+
+  ylab(bquote('Mean fish density '(m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))
+
+#ggsave("fish_density_m2.pdf" , width = 10, height = 8, dpi = 300,path = fish_plots)
+  
+```
+
+
+#### schooling fish 
+
+compare between sites
+
+```{r}
+
+schools_per_m<- one_observer %>%
+ filter(Species_2015 %in% sfish_2015) %>%       group_by(Site,year_month,Knoll,Surface_Area) %>%  summarise("inds"=sum(Abundance)) %>%  mutate("inds_m"=inds/Surface_Area)
+
+
+schools_per_m<-schools_per_m %>%
+  group_by(Site) %>% summarise("mean_density"=mean(inds_m),
+                               "se"=std.error(inds_m),
+                                n=n())
+
+schools_per_m <- schools_per_m %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+
+ggplot(data = schools_per_m,aes(x=Site,y=mean_density,fill = Site))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_density-se,ymax=mean_density+se),width =0.1)+
+  scale_fill_manual(values = color)+
+  geom_text(aes(label = n,y=0.9), size = 7)+  
+  xlab("Site")+ ggtitle("Fish abundance ( schools)")+
+  ylab(bquote('Mean schools density '(m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))
+  
+# ggsave("school_density_m2.pdf" , width = 10, height = 8, dpi = 300,path = fish_plots)
+
+```
+
+### by year
+
+#### fish without schools
+
+```{r}
+ind_per_m_year<- one_observer %>% filter(!Species_2015 %in% sfish_2015) %>% filter(year_month!="2017 b")%>%  group_by(Site,year_month,Knoll,Surface_Area) %>% summarise("inds"=sum(Abundance)) %>% mutate("inds_m"=inds/Surface_Area)
+
+
+ind_per_m_year<-ind_per_m_year %>% group_by(year_month) %>% summarise("mean_density"=mean(inds_m),"se"=std.error(inds_m),n=n())
+
+ind_per_m_year$year_month<-as.factor(ind_per_m_year$year_month)
+
+ggplot(data = ind_per_m_year,aes(x=year_month,y=mean_density,fill = year_month))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_density-se,ymax=mean_density+se),width =0.1)+
+  geom_text(aes(label = n,y=0.5), size = 7,color= "white")+  
+  xlab("Sample")+ ggtitle("Fish abundance (no schools)")+
+  ylab(bquote('Mean fish density '(m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))+
+  scale_fill_manual(values= fish_all,
+                           name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))+
+  scale_x_discrete(labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))
+  
+#ggsave("fish_density_m2_year.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+```
+
+#### total abundance
+
+
+```{r}
+after_storm_knoll<- one_observer %>% filter(year_month =="2020 a") %>% distinct(knoll_id)
+
+after_storm_data_ns<-one_observer %>%
+  filter(knoll_id %in% after_storm_knoll$knoll_id) %>%
+  filter(!Species_2015 %in% sfish_2015) %>% 
+  group_by(Site,year_month) %>%
+  summarise("inds" = sum(Abundance))
+
+after_storm_data_ns<-after_storm_data_ns %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+
+
+ggplot(data = after_storm_data_ns,aes(x=Site,y=inds,color=year_month))+geom_point(size = 3.5)+ggtitle("Fish abundance (no schools)")+
+  ylab("Number of individuals")+ theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+        scale_color_manual(values= fish_k,
+                           name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016","Fall 2017",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021","Fall 2021"))
+
+
+#ggsave("only_storm_knoll_ind_fish_no_schools.png" , width = 10, height = 8, dpi = 300,path =fish_plots)
+
+
+```
+
+
+
+## Biomass
+
+this is from script 15.2
+
+### add biomass column
+
+
+```{r}
+one_observer$class <- with(one_observer,(ceiling(log(Length,2))))
+
+
+one_observer<-one_observer %>%
+  mutate(lenght_class =(2^class)) %>% relocate(lenght_class,.after = 12)
+
+one_observer$midpoint <- ((2^one_observer$class) + (2^(one_observer$class-1)))/2
+
+one_observer<-one_observer %>% relocate(midpoint,.after = 13) %>% relocate(class,.after = 14)
+
+one_observer<- one_observer %>% mutate("true_weight_ind" =  a*Length^b,.after = 14) # to use only when compering years
+
+one_observer<- one_observer %>% mutate("class_weight_ind" =  a*midpoint^b,.after = 15)# to use only when compering sites
+
+
+# the weight for all ind in the same line
+
+one_observer<-one_observer %>%
+  mutate("true_weight_total"=true_weight_ind*Abundance,
+         "class_weight_total" = class_weight_ind*Abundance)
+
+
+one_observer_no_17<-one_observer %>% filter(Year != "2017")
+
+
+```
+
+### mean biomass by site
+no schools
+
+```{r}
+biomass_m<-one_observer_no_17 %>%filter(Year !="2015",Year !="2016") %>% filter(!Species_2015 %in% sfish_2015) %>% 
+  group_by(Site,year_month,Knoll,Surface_Area) %>% 
+  summarise("weight_knoll"=sum(true_weight_total,na.rm = T)) %>% mutate("biomass_m"=weight_knoll/Surface_Area)
+
+
+biomass_m_site<-biomass_m %>% group_by(Site) %>% summarise("mean_biomass"=mean(biomass_m),
+                                                           "se"=std.error(biomass_m),
+                                                           "n"=n())
+
+biomass_m_site <-biomass_m_site %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+ggplot(data = biomass_m_site,aes(x=Site,y=mean_biomass,fill = Site))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_biomass-se,ymax=mean_biomass+se),width =0.1)+
+  scale_fill_manual(values = color)+
+  geom_text(aes(label = n,y=20), size = 7)+  
+  xlab("Site")+ ggtitle("Fish biomass (no schools)")+
+  ylab(bquote('Mean fish biomass '(g/m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))
+
+#ggsave("fish_biomass_per_m_site.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+
+```
+
+### mean biomass by year
+no schools
+
+```{r}
+biomass_m_year<-biomass_m %>% group_by(year_month) %>% summarise("mean_biomass"=mean(biomass_m),                               "se"=std.error(biomass_m),                                    "n"=n())
+
+
+ggplot(data = biomass_m_year,aes(x=year_month,y=mean_biomass,fill = year_month))+
+geom_bar(stat="identity")+geom_errorbar(aes(ymin=mean_biomass-se,ymax=mean_biomass+se),width =0.1)+
+  geom_text(aes(label = n,y=20), size = 7,color= "white")+  
+  xlab("Sample")+ ggtitle("Fish biomass (no schools)")+
+  ylab(bquote('Mean fish biomass '(g/m^2)))+
+  theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        legend.position = "none",
+        strip.text.x = element_text(size = 20))+
+  scale_fill_manual(values= fish_all[3:6],
+                           name = "Sample",
+                           labels = c("Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))+
+  scale_x_discrete(labels = c("Fall 2018","Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))
+#ggsave("fish_biomass_per_m_year.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+```
+
+
+
+###biomass by lenght density plot
+
+```{r}
+after_storm_knoll<- one_observer_no_17 %>%
+  filter(year_month =="2020 a") %>%
+  distinct(knoll_id)
+
+after_knolls<-one_observer_no_17 %>%
+  filter(knoll_id %in% after_storm_knoll$knoll_id) %>% filter(year_month != "2015 b",year_month != "2016 b") %>% filter(!Species_2015 %in% sfish_2015 )
+
+ggplot(after_knolls, aes(x= log(true_weight_total/1000), fill=year_month)) + geom_density(alpha =0.8)+
+  ggtitle("Fish biomass")+ xlab("Log(Weight (kg))")+
+  ylab("Density")+ theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+        scale_fill_manual(values= fish_all[3:7],
+                           name = "Sample",
+                           labels = c("Fall 2018",
+                                      "Spring 2020",
+                                       "Fall 2020" ,
+                                      "Spring 2021"))
+
+
+#ggsave("fish_biomass_dist_year.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+
+after_knolls_res<-after_knolls %>%  filter(Status !="T")
+
+ggplot(after_knolls_res, aes(x= log(true_weight_total/1000), fill=year_month)) + geom_density(alpha =0.8)+
+  ggtitle("Fish biomass")+ xlab("Log(Weight (kg))")+
+  ylab("Density")+ theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+        scale_fill_manual(values= fish_all[3:7],
+                           name = "Sample",
+                           labels = c("Fall 2018",
+                                      "Spring 2020",
+                                       "Fall 2020" ,
+                                      "Spring 2021"))
+
+
+#ggsave("fish_biomass_dist_year_only_res.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+```
+
+### total biomass by year
+
+```{r}
+total_biomass_storm <- after_knolls %>%
+  filter(!Species_2015 %in% sfish_2015) %>%  group_by(Site,year_month) %>%  summarise("total_biomass"=sum(true_weight_total,na.rm = T)) %>% filter(year_month != "2015 b",year_month != "2016 b") 
+
+
+total_biomass_storm<-total_biomass_storm %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR")
+  
+  
+)
+
+
+ggplot(data = total_biomass_storm,aes(x=Site,y=total_biomass/1000,color=year_month))+geom_point(size = 7,alpha = 0.8)+ggtitle("Fish biomass")+
+  ylab("Total biomass (kg)")+ theme_bw()+
+    theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+        scale_color_manual(values= fish_all[3:7],
+                           name = "Sample",
+                           labels = c("Fall 2018",
+                                      "Spring 2020",
+                                      "Fall 2020" ,
+                                      "Spring 2021"))
+
+#ggsave("fish_biomass_point_year.png" , width = 10, height = 8, dpi = 300,path = fish_plots)
+
+```
+
+
+## Species area relationship
+
+I cant find the original script for the plots but i will complie it now based on the model describe in the ms
+ 
+ ill start by cleaning the environment and create the data for the sp-area plots and models
+ 
+```{r}
+rm(list=ls())
+
+load("Data/fish_full_data.Rdata")
+
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+#all years
+fish_all<-c("#669bbc","#336683","#003049","#ed3140","#c1121f","#710912")
+#all years for katza
+fish_k<-c("#669bbc","#336683","#1a4b66","#003049","#ed3140","#c1121f","#710912")
+
+```
+
+```{r}
+
+# remove confidence 1
+
+sp_area<-fish_full_data
+sp_area$Confidence[is.na(sp_area$Confidence)]<-(0)
+sp_area<- sp_area %>% filter(Confidence < 1)
+
+
+# remove irrgular sites
+
+
+knolls_to_remove<-c("South bridge reserve","North bridge reserve","south bridge reserve",
+                    "Tamar","north bridge reserve")
+
+sp_area<-sp_area %>% filter(!Knoll %in% knolls_to_remove) %>% filter(Site !="North beach")
+
+# choose one observer
+
+
+one_observer<-list()
+loop<-1
+set.seed(1)
+
+for (i in unique(sp_area$survey_id)) {
+  
+  data <- sp_area %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+
+
+# keep only residence fish
+
+only_cryptic <- one_observer %>% filter(Status != "T")
+
+# calculate speciess richness per knoll
+
+species_knoll<- only_cryptic %>% group_by(survey_id) %>% mutate(Species_number = n_distinct(Species_2015)) %>% select(-Species,-Species_2015,-Family,-Abundance,-Length,-Confidence,-Status,-a,-b) %>%  ungroup() %>% distinct(.keep_all = T)
+
+# remove 2017 as only katza was sampled
+
+species_knoll<-species_knoll %>% filter(Year != 2017)
+
+# add the month, season and convert to factors
+
+species_knoll$month<-month(species_knoll$Date)
+species_knoll$month<-as.factor(species_knoll$month)
+
+
+species_knoll$Season <- ifelse(species_knoll$month == 6,"Spring","Fall")
+
+species_knoll$Year<-as.factor(species_knoll$Year)
+species_knoll$Site<-as.factor(species_knoll$Site)
+species_knoll$storm<-as.factor(species_knoll$storm)
+species_knoll$year_month<-as.factor(species_knoll$year_month)
+
+
+# remove outliars knolls
+
+no_nr_outliar<-species_knoll %>% filter(knoll_id != "Katza_19",knoll_id != "NR_17")
+
+
+```
+
+model as described in the report draft
+
+```{r}
+
+model<-lm(formula = log(Species_number) ~ log(Surface_Area)*Site + year_month + Max_depth ,data = no_nr_outliar)
+
+
+
+```
+
+plots
+
+```{r}
+
+# plot by site
+
+model_gg_site=ggeffects::ggpredict(model,terms = c('Surface_Area[1:66 by=1]','Site'))
+
+ggplot()+
+  theme_classic()+
+  geom_line(data = model_gg_site,aes(x= x,y = predicted,color= group),size=1.5)+ 
+  geom_point(data = species_knoll,aes(Surface_Area,Species_number,color = Site),alpha = 0.5)+scale_x_continuous(trans='log2')+scale_y_continuous(trans='log2')+
+  ylab("Richness")+
+  xlab(bquote('Knoll surface area '~(m^2)))+
+    theme(axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+  scale_color_manual(name = "Site",values = color,
+                     labels = c("CA", "KA",
+                                      "NR","PR"))
+# ggsave("fish_sp_area_residence_site.png" , width = 14, height = 5, dpi = 300,path = fish_plots)
+
+  
+# plot by year
+
+model_gg_year=ggeffects::ggpredict(model,terms = c('Surface_Area[1:66 by=1]','year_month'))
+
+ggplot()+
+  theme_classic()+
+  geom_line(data = model_gg_year,aes(x= x,y = predicted,color= group),size=1.5)+ 
+  geom_point(data = species_knoll,aes(Surface_Area,Species_number,color = year_month),alpha = 0.5)+
+  scale_x_continuous(trans='log2')+scale_y_continuous(trans='log2')+
+  ylab("Richness")+
+  xlab(bquote('Knoll surface area '~(m^2)))+
+    theme(axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20),
+        strip.text.x = element_text(size = 20))+
+        scale_color_manual(values=fish_all,
+                           name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021","Fall 2021"))+
+        scale_fill_manual(values=fish_all,
+                           name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021","Fall 2021"))
+
+# ggsave("fish_sp_area_residence_year.png" , width = 14, height = 5, dpi = 300,path = fish_plots)
+
+```
+
+
+
+
+*Note* - this sp-area by year plot is different from the one presented in the paper because there is no interaction between surface area and year_month. the difference is that in the current plot the storm curve remain always below the others while when modeling the interaction we see the posts1 convegre with the rest... 
+
+## Rarefactions
+
+
+```{r}
+
+rm(list=ls())
+
+load("Data/fish_full_data.Rdata")
+
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+#all years
+fish_all<-c("#669bbc","#336683","#003049","#ed3140","#c1121f","#710912")
+#all years for katza
+fish_k<-c("#669bbc","#336683","#1a4b66","#003049","#ed3140","#c1121f","#710912")
+
+```
+
+prepare the data
+
+```{r}
+
+# choose one observer
+
+one_observer<-list()
+loop<-1
+set.seed(1)
+for (i in unique(fish_full_data$survey_id)) {
+  
+  data <- fish_full_data %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+
+#filter low confidance
+
+
+one_observer$Confidence[is.na(one_observer$Confidence)]<-(0)
+one_observer<-one_observer %>% filter(Confidence <1)
+
+
+#filter irregular sites
+
+one_observer<-one_observer %>%
+  filter(Site !="North beach",
+         ! Knoll %in% c("Tamar","South bridge reserve","south bridge reserve",
+                        "North bridge reserve","north bridge reserve"))
+
+# add month
+
+one_observer$year_month<-ifelse(month(one_observer$Date)>6,
+                                paste(one_observer$Year,"b",sep= " "),
+                                paste(one_observer$Year,"a",sep= " "))
+
+
+# create wide data for 2015 resolution
+
+all_fish_2015 <- one_observer %>%
+  group_by(Site,Year,year_month,Knoll,Surface_Area,Max_depth,Date,survey_id,Species_2015) %>%
+  summarise("aboundance"=sum(Abundance))
+
+
+wide_2015<-spread(all_fish_2015,Species_2015,aboundance,fill = 0)
+
+
+```
+
+
+
+#### by site
+
+##### Richness
+
+```{r}
+srb_list<-list()
+loop<-1
+
+wide_2015<-wide_2015 %>% filter(Year !="2017")
+
+for (i in unique(wide_2015$Site)) {
+  
+  site<- wide_2015 %>% filter(Site == i)
+  
+  site_richness<-Rarefy::rare_alpha(site[9:ncol(site)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  site_richness$Site<-rep(i)
+  site_richness$sample<-1:nrow(site_richness)
+  
+  
+  srb_list[[loop]]<-site_richness
+  loop<-loop+1
+  
+  
+}
+
+site_richness<-bind_rows(srb_list)
+
+
+ggplot(site_richness,aes(x= sample,y=Rarefaction,color=Site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish")+
+  ylab("Richness")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,labels = c("CA", "KA","NR","PR"))+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+# ggsave("fish_sbr.pdf" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+
+##### Shannon with schools
+
+```{r}
+srb_list_shannon<-list()
+loop<-1
+
+wide_2015<-wide_2015 %>% filter(Year !="2017")
+
+for (i in unique(wide_2015$Site)) {
+  
+  site<- wide_2015 %>% filter(Site == i)
+  
+  site_shannon<-Rarefy::rare_alpha(site[9:ncol(site)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  site_shannon$Site<-rep(i)
+  site_shannon$sample<-1:nrow(site_shannon)
+  
+  
+  srb_list_shannon[[loop]]<-site_shannon
+  loop<-loop+1
+  
+  
+}
+
+site_richness_shannon<-bind_rows(srb_list_shannon)
+
+
+
+ggplot(site_richness_shannon,aes(x= sample,y=Rarefaction,color=Site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,labels = c("CA", "KA","NR","PR"))+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+
+#ggsave("fish_shannon_sbr.png" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+##### Shannon no schools
+
+```{r}
+
+srb_list_shannon_ns<-list()
+loop<-1
+
+wide_2015_ns<-wide_2015 %>% filter(Year !="2017")
+
+wide_2015_ns$`Pseudanthias spp.`<-NULL
+wide_2015_ns$`Chromis viridis`<-NULL
+wide_2015_ns$`Neopomacentrus miryae`<-NULL
+
+for (i in unique(wide_2015_ns$Site)) {
+  
+  site<- wide_2015_ns %>% filter(Site == i)
+  
+  site_shannon_ns<-Rarefy::rare_alpha(site[9:ncol(site)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  site_shannon_ns$Site<-rep(i)
+  site_shannon_ns$sample<-1:nrow(site_shannon_ns)
+  
+  
+  srb_list_shannon_ns[[loop]]<-site_shannon_ns
+  loop<-loop+1
+  
+  
+}
+
+site_richness_shannon_ns<-bind_rows(srb_list_shannon_ns)
+
+
+ggplot(site_richness_shannon_ns,aes(x= sample,y=Rarefaction,color=Site))+geom_line(size=1.2)+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.05, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish - no schools")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = color,labels = c("CA", "KA","NR","PR"))+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+#ggsave("fish_shannon_sbr_no_schools.png", width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+
+
+#### By year
+
+##### Richness
+
+```{r}
+l_type<-c("solid","solid","solid","twodash","solid","solid")
+
+srb_list_year<-list()
+loop<-1
+
+wide_2015<-wide_2015 %>% filter(Year !="2017")
+
+for (i in unique(wide_2015$year_month)) {
+  
+  year<- wide_2015 %>% filter(year_month == i)
+  
+  year_richness<-Rarefy::rare_alpha(year[9:ncol(year)],
+                          method="hill",
+                          q=0,
+                          random=200,
+                          mean = F)
+  
+  year_richness$Year<-rep(i)
+  year_richness$sample<-1:nrow(year_richness)
+  
+  
+  srb_list_year[[loop]]<-year_richness
+  loop<-loop+1
+  
+  
+}
+
+year_richness<-bind_rows(srb_list_year)
+
+labs(color  = "Year", linetype = "Year")
+
+
+ggplot(year_richness,aes(x= sample,y=Rarefaction,color=Year))+
+  geom_line(aes(color = Year, linetype = Year), size = 1.2) +
+  scale_linetype_manual(name = "Sample",values = l_type,labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021")) +
+  geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish")+
+  ylab("Richness")+ 
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = fish_all,name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021"))+
+
+  guides(color=guide_legend(override.aes=list(fill=NA)))
+
+
+#ggsave("fish_sbr_year.pdf" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+
+##### Shannon with schools
+
+```{r}
+srb_list_year_sh<-list()
+loop<-1
+
+wide_2015<-wide_2015 %>% filter(Year !="2017")
+
+for (i in unique(wide_2015$year_month)) {
+  
+  year<- wide_2015 %>% filter(year_month == i)
+  
+  year_richness_shannon<-Rarefy::rare_alpha(year[9:ncol(year)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  year_richness_shannon$Year<-rep(i)
+  year_richness_shannon$sample<-1:nrow(year_richness_shannon)
+  
+  
+  srb_list_year_sh[[loop]]<-year_richness_shannon
+  loop<-loop+1
+  
+  
+}
+
+year_richness_shannon<-bind_rows(srb_list_year_sh)
+
+labs(color  = "Year", linetype = "Year")
+
+ggplot(year_richness_shannon,
+       aes(x = sample, y = Rarefaction, color = Year)) +
+  geom_line(aes(color = Year,linetype = Year), size = 1.2) +
+  scale_linetype_manual(name = "Sample",
+                        values = l_type,
+                        labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021"))+
+  geom_ribbon(aes(ymin = IC_low, ymax = IC_up),
+              alpha = 0.1,
+              linetype = 0) +
+  theme_bw() + xlab("Random sample number") + ggtitle("Fish") +
+  ylab("Shannon diversity") +
+  theme(
+    axis.text.x = element_text(size = 20),
+    plot.title = element_text(size = 24),
+    axis.text.y = element_text(size = 20),
+    axis.title.x = element_text(size = 22),
+    axis.title.y = element_text(size = 22),
+    legend.title = element_text(size = 22),
+    legend.text = element_text(size = 20)) + 
+    scale_color_manual(values = fish_all,name = "Sample",
+    labels = c(
+      "Fall 2015",
+      "Fall 2016",
+      "Fall 2018",
+      "Spring 2020",
+      "Fall 2020" ,
+      "Spring 2021"))+
+      guides(color = guide_legend(override.aes = list(fill = NA)))
+             
+
+#ggsave("fish_sbr_year_shannon.pdf" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+
+
+##### Shannon no schools
+
+```{r}
+srb_list_year_sh_nosc<-list()
+loop<-1
+
+wide_2015_ns<-wide_2015 
+
+wide_2015_ns$`Pseudanthias spp.`<-NULL
+wide_2015_ns$`Chromis viridis`<-NULL
+wide_2015_ns$`Neopomacentrus miryae`<-NULL
+
+
+for (i in unique(wide_2015_ns$year_month)) {
+  
+  year<- wide_2015_ns %>% filter(year_month == i)
+  
+  year_richness_shannon_ns<-Rarefy::rare_alpha(year[9:ncol(year)],
+                          method="hill",
+                          q=1,
+                          random=200,
+                          mean = F)
+  
+  year_richness_shannon_ns$Year<-rep(i)
+  year_richness_shannon_ns$sample<-1:nrow(year_richness_shannon_ns)
+  
+  
+  srb_list_year_sh_nosc[[loop]]<-year_richness_shannon_ns
+  loop<-loop+1
+  
+  
+}
+
+year_richness_shannon_ns<-bind_rows(srb_list_year_sh_nosc)
+
+
+ggplot(year_richness_shannon_ns,aes(x= sample,y=Rarefaction,color=Year))+
+  geom_line(aes(color = Year,linetype = Year), size = 1.2) +
+  scale_linetype_manual(name = "Sample",
+                        values = l_type,
+                        labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021"))+
+   geom_ribbon(aes(ymin=IC_low, ymax=IC_up),alpha=0.1, linetype = 0)+
+  theme_bw()+xlab("Random sample number") + ggtitle("Fish - without schools")+
+  ylab("Shannon diversity")+
+  theme(axis.text.x = element_text(size=20),
+        plot.title = element_text(size=24),
+        axis.text.y = element_text(size =20),
+        axis.title.x = element_text(size=22),
+        axis.title.y = element_text(size=22),
+        legend.title = element_text(size=22),
+        legend.text = element_text(size=20))+
+  scale_color_manual(values = fish_all,name = "Sample",
+                           labels = c("Fall 2015", "Fall 2016",
+                                      "Fall 2018","Spring 2020", "Fall 2020" ,
+                                      "Spring 2021"))+
+  guides(color = guide_legend(override.aes = list(fill = NA)))
+  
+
+
+#ggsave("fish_sbr_year_shannon_no_s.pdf" , width = 14, height = 5, dpi = 300,path = fish_plots)
+```
+
+## nMDS
+
+```{r}
+rm(list=ls())
+
+load("Data/fish_full_data.Rdata")
+
+fish_plots<-"G:\\My Drive\\PHD\\chapter 1 strom effect\\R script for report\\Fish plots"
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+
+new_6<-c("#277da1",
+         "#4d194d",
+         "#43aa8b",
+         "#d9ed92",
+         "#f94144",
+         "#f8961e")
+
+new_7<-c("#277da1",
+         "#4d194d",
+         "#90be6d",
+         "#43aa8b",
+         "#d9ed92",
+         "#f94144",
+         "#f8961e")
+
+scales::show_col(new_6)
+scales::show_col(new_7)
+
+```
+
+
+```{r}
+# one observer
+
+one_observer<-list()
+loop<-1
+set.seed(1)
+for (i in unique(fish_full_data$survey_id)) {
+  
+  data <- fish_full_data %>% filter(survey_id == i)
+  
+  obs_amount <- length(unique(data$Observer))
+  obs_name <- unique(data$Observer)
+  chosen_obs <- sample(obs_name,1)  
+ 
+  filter_data<-data %>% filter(Observer == chosen_obs)
+  one_observer[[loop]]<-filter_data
+  loop<-loop+1
+  
+  
+}
+
+one_observer<- bind_rows(one_observer)
+
+rm(data,filter_data)
+
+# confidance
+
+one_observer$Confidence[is.na(one_observer$Confidence)]<-(0)
+one_observer<-one_observer %>% filter(Confidence <2)
+
+# month
+
+
+one_observer$year_month<-ifelse(month(one_observer$Date)>6,
+                                paste(one_observer$Year,"b",sep= " "),
+                                paste(one_observer$Year,"a",sep= " "))
+
+
+#
+
+```
+
+
+
+
+```{r}
+
+cryp_fish_2015 <- one_observer %>% filter(Status != "T") %>% 
+  group_by(Site,Year,year_month,Knoll,Surface_Area,Max_depth,Date,survey_id,Species_2015) %>%
+  summarise("aboundance"=sum(Abundance))
+
+
+wide_cryptic_2015<-spread(cryp_fish_2015,Species_2015,aboundance,fill = 0)
+
+wide_cryptic_2015<-wide_cryptic_2015 %>% drop_na(Surface_Area)
+
+wide_cryptic_2015<- wide_cryptic_2015 %>% mutate("Site"= case_when(
+      Site == "Caves" ~ "CA",
+      Site == "Princess" ~ "PR",
+      Site == "Katza" ~ "KA",
+      Site =="NR" ~"NR"))
+
+
+rm(cryp_fish_2015)
+
+
+wide_cryptic_2015$year_month <-
+  as.character(wide_cryptic_2015$year_month)
+
+
+wide_cryptic_2015$year_month <-
+  ifelse(month(wide_cryptic_2015$Date) == 6,
+         paste0("Spring ", year(wide_cryptic_2015$Date)),
+         paste0("Fall " , year(wide_cryptic_2015$Date)))
+
+
+wide_cryptic_2015$year_month<-as.factor(wide_cryptic_2015$year_month)
+
+
+wide_cryptic_2015$year_month <-
+  ordered(
+    wide_cryptic_2015$year_month,
+    levels = c(
+      "Fall 2015",
+      "Fall 2016",
+      "Fall 2017",
+      "Fall 2018",
+      "Spring 2020",
+      "Fall 2020" ,
+      "Spring 2021"
+    )
+  )
+
+
+
+
+```
+
+#### By site
+
+```{r}
+
+
+# make the plot for all sites execpt Kazta (6 colors) 
+
+wide_no_k<-wide_cryptic_2015 %>% filter(Site!="KA")
+wide_no_k$year_month<-droplevels(wide_no_k$year_month)
+
+for (i in unique(wide_no_k$Site)) {
+  
+  data <- wide_no_k %>% filter(Site == i)
+  wis_data <- data[,9:ncol(data)]
+  ord <-
+    metaMDS(
+      wis_data,
+      distance = "bray" ,
+      trace = F,
+      k = 2,
+      autotransform = FALSE
+    ) 
+  
+  color_y=new_6
+ 
+  Year <- factor(data$year_month)
+  
+  Year<-droplevels(Year)
+
+  plot_name<-paste0(fish_plots,"\\",i,"_site",".pdf")
+
+pdf(file = plot_name,   # The directory you want to save the file in
+    width = 8,          # The width of the plot in inches
+    height = 8)    
+  
+ordiplot(ord, type = "n", main = paste(i,", stress=",round(ord$stress,3)))
+orditorp(ord, label = T, display = "sites", col = color_y[Year],pch = 16)
+ordiellipse(ord, groups = data$year_month, draw = "polygon",alpha = 0.5,label=F ,lty = 1,col = color_y)
+legend("bottomright", legend = levels(Year), bty = "n", col = color_y, pch = 15,cex=1.5)
+
+dev.off()
+
+}
+
+
+# make the nmds plot for katza (7 colors)
+
+wide_k<-wide_cryptic_2015 %>% filter(Site=="KA")
+
+for (i in unique(wide_k$Site)) {
+  
+  data <- wide_k %>% filter(Site == i)
+  wis_data <- data[,9:ncol(data)]
+  ord<- metaMDS(wis_data,distance = "bray" ,trace = F,k=2,autotransform = FALSE) 
+  
+  color_y=new_7
+ 
+  Year <- factor(data$year_month)
+  
+  Year<-droplevels(Year)
+  
+  plot_name<-paste0(fish_plots,"\\",i,"_site",".pdf")
+
+pdf(file = plot_name,   # The directory you want to save the file in
+    width = 8,          # The width of the plot in inches
+    height = 8)  
+  
+ordiplot(ord, type = "n", main = paste(i,", stress=",round(ord$stress,3)))
+orditorp(ord, label = T, display = "sites", col = color_y[Year],pch = 16)
+ordiellipse(ord, groups = data$year_month, draw = "polygon",alpha = 0.5,label=F ,lty = 1,col = color_y)
+legend("bottomright", legend = levels(Year), bty = "n", col = color_y, pch = 15,cex=1.5)
+
+dev.off()
+
+}
+
+
+```
+
+#### By year
+
+```{r}
+
+color<-c("#56dde0", "#33658a", "#f5af2d","#f2641a")
+
+
+
+for (i in unique(wide_cryptic_2015$year_month)) {
+  
+  data <- wide_cryptic_2015 %>% filter(year_month == i)
+  wis_data <- data[,9:ncol(data)]
+  ord<- metaMDS(wis_data,distance = "bray" ,trace = F,k=2,autotransform = FALSE)   
+  print(ord$stress)
+  site <- factor(data$Site)
+  
+plot_name<-paste0(fish_plots,"\\",i,"_year",".pdf")
+
+pdf(file = plot_name,   # The directory you want to save the file in
+    width = 7,          # The width of the plot in inches
+    height = 7)  
+  
+ordiplot(ord, type = "n", main = paste(i,", stress=",round(ord$stress,3)))
+orditorp(ord, label = T, display = "sites", col = color[site],pch = 16)
+ordiellipse(ord, groups = data$Site, draw = "polygon",alpha = 0.35,label=F ,lty = 1,col = color)
+legend("bottomright", legend = levels(site), bty = "n", col = color, pch = 15,cex=1.5)
+
+dev.off()
+
+}
+```
+
